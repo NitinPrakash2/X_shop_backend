@@ -80,18 +80,10 @@ def index(_p={}):
         request: Request,
         project: str,
         instance: str,
-        #version: str = Path(..., regex=PATH_SCHEMA["properties"]["version"]["pattern"], description="API version"),
-        #body: dict = Body(..., embed=False, schema_extra=BODY_SCHEMA),
-        body: dict = Depends( include_file("src/parties/party_2/schema/instance.py", lambda name, module: ())[0][1].body ),
-        #verbose: bool = Query(QUERY_SCHEMA["properties"]["verbose"]["default"], description="Verbose output")
+        body: dict = Body(..., embed=False),
         db=Depends(get_db)
     ):
-
-        #return controller_index()[0]()
-        #create = controller_index()  # get inner functions
-        #_rsp = create;
-        #return  _rsp;
-        _func, _, __ = await controller_index()   # unpack functions
+        _func, _, __ = await controller_index()
         return await _func(request,project,instance,body,db)       # call create
     """
         return JSONResponse(

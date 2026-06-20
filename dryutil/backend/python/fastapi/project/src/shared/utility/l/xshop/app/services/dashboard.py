@@ -2,16 +2,16 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import func
+from sqlalchemy import func, cast, String
 
 
 async def get_dashboard(request: Request, db: AsyncSession, Seller, XAccount, Product, PublishJob, Order) -> JSONResponse:
     seller_id = request.state.user["id"]
 
     total_products  = (await db.execute(select(func.count()).select_from(Product).where(Product.seller_id == seller_id))).scalar()
-    published_count = (await db.execute(select(func.count()).select_from(PublishJob).where(PublishJob.seller_id == seller_id, PublishJob.status == "published"))).scalar()
-    scheduled_count = (await db.execute(select(func.count()).select_from(PublishJob).where(PublishJob.seller_id == seller_id, PublishJob.status == "scheduled"))).scalar()
-    failed_count    = (await db.execute(select(func.count()).select_from(PublishJob).where(PublishJob.seller_id == seller_id, PublishJob.status == "failed"))).scalar()
+    published_count = (await db.execute(select(func.count()).select_from(PublishJob).where(PublishJob.seller_id == seller_id, cast(PublishJob.status, String) == "published"))).scalar()
+    scheduled_count = (await db.execute(select(func.count()).select_from(PublishJob).where(PublishJob.seller_id == seller_id, cast(PublishJob.status, String) == "scheduled"))).scalar()
+    failed_count    = (await db.execute(select(func.count()).select_from(PublishJob).where(PublishJob.seller_id == seller_id, cast(PublishJob.status, String) == "failed"))).scalar()
     total_orders    = (await db.execute(select(func.count()).select_from(Order).where(Order.seller_id == seller_id))).scalar()
     x_acc           = (await db.execute(select(XAccount).where(XAccount.seller_id == seller_id))).scalar_one_or_none()
 
@@ -40,7 +40,7 @@ async def get_orders(request: Request, db: AsyncSession, Order) -> JSONResponse:
 
     query = select(Order).where(Order.seller_id == seller_id)
     if status:
-        query = query.where(Order.status == status)
+        query = query.where(cast(Order.status, String) == status)
     orders = (await db.execute(
         query.order_by(Order.created_at.desc()).offset((page - 1) * limit).limit(limit)
     )).scalars().all()
@@ -69,12 +69,12 @@ async def get_analytics(request: Request, db: AsyncSession, Product, PublishJob,
     seller_id = request.state.user["id"]
 
     total_products  = (await db.execute(select(func.count()).select_from(Product).where(Product.seller_id == seller_id))).scalar()
-    active_products = (await db.execute(select(func.count()).select_from(Product).where(Product.seller_id == seller_id, Product.status == "active"))).scalar()
-    total_published = (await db.execute(select(func.count()).select_from(PublishJob).where(PublishJob.seller_id == seller_id, PublishJob.status == "published"))).scalar()
-    total_scheduled = (await db.execute(select(func.count()).select_from(PublishJob).where(PublishJob.seller_id == seller_id, PublishJob.status == "scheduled"))).scalar()
-    total_failed    = (await db.execute(select(func.count()).select_from(PublishJob).where(PublishJob.seller_id == seller_id, PublishJob.status == "failed"))).scalar()
+    active_products = (await db.execute(select(func.count()).select_from(Product).where(Product.seller_id == seller_id, cast(Product.status, String) == "active"))).scalar()
+    total_published = (await db.execute(select(func.count()).select_from(PublishJob).where(PublishJob.seller_id == seller_id, cast(PublishJob.status, String) == "published"))).scalar()
+    total_scheduled = (await db.execute(select(func.count()).select_from(PublishJob).where(PublishJob.seller_id == seller_id, cast(PublishJob.status, String) == "scheduled"))).scalar()
+    total_failed    = (await db.execute(select(func.count()).select_from(PublishJob).where(PublishJob.seller_id == seller_id, cast(PublishJob.status, String) == "failed"))).scalar()
     total_orders    = (await db.execute(select(func.count()).select_from(Order).where(Order.seller_id == seller_id))).scalar()
-    pending_orders  = (await db.execute(select(func.count()).select_from(Order).where(Order.seller_id == seller_id, Order.status == "pending"))).scalar()
+    pending_orders  = (await db.execute(select(func.count()).select_from(Order).where(Order.seller_id == seller_id, cast(Order.status, String) == "pending"))).scalar()
 
     return JSONResponse({"status": "success", "output": {
         "products": {

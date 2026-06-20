@@ -15,35 +15,46 @@ DATABASE_URL  = os.getenv("DATABASE_URL", "")
 _engine       = create_async_engine(DATABASE_URL, echo=False)
 _AsyncSession = sessionmaker(_engine, expire_on_commit=False, class_=AsyncSession)
 
+# Direct imports from xshop module
+from src.shared.utility.l.xshop.index import (
+    Seller, SellerProfile, Store, XAccount, OAuthToken, Product, 
+    ProductSyncLog, PublishJob, Order, AnalyticsEvent, 
+    SellerRefreshToken, PublishedPost, SchedulerJob
+)
 
-def _get_models():
-    mod = sys.modules.get("xshop_idx")
-    if mod is None:
-        _path = os.path.join(os.path.dirname(__file__), "..", "..", "index.py")
-        spec  = importlib.util.spec_from_file_location("xshop_idx", os.path.abspath(_path))
-        mod   = importlib.util.module_from_spec(spec)
-        sys.modules["xshop_idx"] = mod
-        spec.loader.exec_module(mod)
-    return mod
+_x_client_cache = None
+_sync_task_cache = None
 
 
 def _load_x_client():
+    global _x_client_cache
+    if _x_client_cache is not None:
+        return _x_client_cache
+    
     path = os.path.join(os.path.dirname(__file__), "..", "integrations", "x", "client.py")
     spec = importlib.util.spec_from_file_location("xshop_x_client", os.path.abspath(path))
     mod  = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    return mod
+    
+    _x_client_cache = mod
+    return _x_client_cache
 
 
 def _load_sync_task():
+    global _sync_task_cache
+    if _sync_task_cache is not None:
+        return _sync_task_cache
+    
     path = os.path.join(os.path.dirname(__file__), "..", "tasks", "sync_products.py")
     spec = importlib.util.spec_from_file_location("xshop_task_sync", os.path.abspath(path))
     mod  = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
-    return mod
+    
+    _sync_task_cache = mod
+    return _sync_task_cache
 
 
-async def _track_job(SchedulerJob, job_name: str, status: str, started_at, error_msg=None, meta=None):
+async def _track_job(job_name: str, status: str, started_at, error_msg=None, meta=None):
     async with _AsyncSession() as db:
         db.add(SchedulerJob(
             job_name=job_name, status=status,
@@ -53,7 +64,7 @@ async def _track_job(SchedulerJob, job_name: str, status: str, started_at, error
         await db.commit()
 
 
-async def _process_single_job(job, db, x, PublishJob, XAccount, OAuthToken, Product, PublishedPost):
+async def _process_single_job(job, db, x):
     """Process a single scheduled job."""
     x_acc = (await db.execute(select(XAccount).where(XAccount.seller_id == job.seller_id))).scalar_one_or_none()
     if x_acc is None or not x_acc.is_connected:
@@ -66,7 +77,7 @@ async def _process_single_job(job, db, x, PublishJob, XAccount, OAuthToken, Prod
         return 0
 
     access_token = await x.get_valid_token(token_row, db)
-    tweet_text   = f"\U0001f6cd\ufe0f {p.name}\n\n{p.description or ''}\n\n\U0001f4b0 Price: {p.price}"[:280]
+    tweet_text   = f"🛍️ {p.name}\n\n{p.description or ''}\n\n💰 Price: {p.price}"[:280]
     post_id      = await x.post_tweet(access_token, tweet_text)
 
     job.status       = "published"
@@ -81,10 +92,6 @@ async def _process_single_job(job, db, x, PublishJob, XAccount, OAuthToken, Prod
 
 
 async def _process_scheduled_posts():
-    mod = _get_models()
-    PublishJob, XAccount, OAuthToken, Product, PublishedPost, SchedulerJob = (
-        mod.PublishJob, mod.XAccount, mod.OAuthToken, mod.Product, mod.PublishedPost, mod.SchedulerJob
-    )
     started_at = datetime.now(timezone.utc)
     x          = _load_x_client()
 
@@ -101,20 +108,20 @@ async def _process_scheduled_posts():
             processed = 0
             for job in jobs:
                 try:
-                    processed += await _process_single_job(job, db, x, PublishJob, XAccount, OAuthToken, Product, PublishedPost)
+                    processed += await _process_single_job(job, db, x)
                 except (ValueError, KeyError, RuntimeError) as e:
                     job.status    = "failed"
                     job.error_msg = str(e)
                     logger.error(f"scheduled job {job.id} failed: {e}")
 
             await db.commit()
-            await _track_job(SchedulerJob, "process_scheduled_posts", "success", started_at, meta={"processed": processed})
+            await _track_job("process_scheduled_posts", "success", started_at, meta={"processed": processed})
         except (ValueError, RuntimeError) as e:
             logger.error(f"_process_scheduled_posts error: {e}")
-            await _track_job(SchedulerJob, "process_scheduled_posts", "failed", started_at, error_msg=str(e))
+            await _track_job("process_scheduled_posts", "failed", started_at, error_msg=str(e))
 
 
-async def _retry_single_job(job, db, x, PublishJob, XAccount, OAuthToken, Product, PublishedPost):
+async def _retry_single_job(job, db, x):
     """Retry a single failed job."""
     x_acc = (await db.execute(select(XAccount).where(XAccount.seller_id == job.seller_id))).scalar_one_or_none()
     if x_acc is None or not x_acc.is_connected:
@@ -127,7 +134,7 @@ async def _retry_single_job(job, db, x, PublishJob, XAccount, OAuthToken, Produc
         return 0
 
     access_token = await x.get_valid_token(token_row, db)
-    tweet_text   = f"\U0001f6cd\ufe0f {p.name}\n\n{p.description or ''}\n\n\U0001f4b0 Price: {p.price}"[:280]
+    tweet_text   = f"🛍️ {p.name}\n\n{p.description or ''}\n\n💰 Price: {p.price}"[:280]
     post_id      = await x.post_tweet(access_token, tweet_text)
 
     job.status       = "published"
@@ -143,10 +150,6 @@ async def _retry_single_job(job, db, x, PublishJob, XAccount, OAuthToken, Produc
 
 
 async def _retry_failed_posts():
-    mod = _get_models()
-    PublishJob, XAccount, OAuthToken, Product, PublishedPost, SchedulerJob = (
-        mod.PublishJob, mod.XAccount, mod.OAuthToken, mod.Product, mod.PublishedPost, mod.SchedulerJob
-    )
     started_at = datetime.now(timezone.utc)
     x          = _load_x_client()
 
@@ -163,22 +166,18 @@ async def _retry_failed_posts():
             retried = 0
             for job in jobs:
                 try:
-                    retried += await _retry_single_job(job, db, x, PublishJob, XAccount, OAuthToken, Product, PublishedPost)
+                    retried += await _retry_single_job(job, db, x)
                 except (ValueError, KeyError, RuntimeError) as e:
                     logger.error(f"retry job {job.id} failed: {e}")
 
             await db.commit()
-            await _track_job(SchedulerJob, "retry_failed_posts", "success", started_at, meta={"retried": retried})
+            await _track_job("retry_failed_posts", "success", started_at, meta={"retried": retried})
         except (ValueError, RuntimeError) as e:
             logger.error(f"_retry_failed_posts error: {e}")
-            await _track_job(SchedulerJob, "retry_failed_posts", "failed", started_at, error_msg=str(e))
+            await _track_job("retry_failed_posts", "failed", started_at, error_msg=str(e))
 
 
 async def _auto_sync_products():
-    mod = _get_models()
-    Seller, Product, ProductSyncLog, SchedulerJob = (
-        mod.Seller, mod.Product, mod.ProductSyncLog, mod.SchedulerJob
-    )
     started_at = datetime.now(timezone.utc)
     task       = _load_sync_task()
 
@@ -192,10 +191,10 @@ async def _auto_sync_products():
                     total_synced += result.get("synced", 0)
                 except (ValueError, RuntimeError, KeyError) as e:
                     logger.error(f"auto sync seller {seller.id} failed: {e}")
-            await _track_job(SchedulerJob, "auto_sync_products", "success", started_at, meta={"total_synced": total_synced})
+            await _track_job("auto_sync_products", "success", started_at, meta={"total_synced": total_synced})
         except (ValueError, RuntimeError) as e:
             logger.error(f"_auto_sync_products error: {e}")
-            await _track_job(SchedulerJob, "auto_sync_products", "failed", started_at, error_msg=str(e))
+            await _track_job("auto_sync_products", "failed", started_at, error_msg=str(e))
 
 
 def start_scheduler():

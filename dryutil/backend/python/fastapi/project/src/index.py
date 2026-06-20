@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from src.shared.util.include_file.index import include_file
@@ -8,7 +11,7 @@ import importlib.util, os as _os, sys as _sys
 def _load_scheduler():
     if "xshop_scheduler" in _sys.modules:
         return _sys.modules["xshop_scheduler"]
-    _path = _os.path.join(_os.path.dirname(__file__), "shared", "utility", "l", "706", "app", "services", "scheduler.py")
+    _path = _os.path.join(_os.path.dirname(__file__), "shared", "utility", "l", "xshop", "app", "services", "scheduler.py")
     _spec = importlib.util.spec_from_file_location("xshop_scheduler", _path)
     _mod  = importlib.util.module_from_spec(_spec)
     _sys.modules["xshop_scheduler"] = _mod
@@ -49,6 +52,7 @@ async def root():
 
 
 
+
 """
 # Create tables if not using Alembic
 @app.on_event("startup")
@@ -56,8 +60,6 @@ async def startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 """
-
-
 
 
 
@@ -125,7 +127,6 @@ _party_1({
     "party": "party_1"
 })
 #====party_1====#  [END]
-
 
 
 
@@ -199,7 +200,6 @@ _party_2({
     "party": "party_2"
 })
 #====party_2====#  [END]
-
 
 
 

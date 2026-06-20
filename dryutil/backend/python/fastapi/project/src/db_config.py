@@ -17,7 +17,9 @@ AsyncSessionLocal = sessionmaker(
     engine, expire_on_commit=False, class_=AsyncSession
 )
 
-Base = declarative_base()
+Base = declarative_base(metadata=None)
+# Allow table redefinition in case of multiple imports
+Base.metadata.extend_existing = True
 
 # Dependency
 async def get_db():

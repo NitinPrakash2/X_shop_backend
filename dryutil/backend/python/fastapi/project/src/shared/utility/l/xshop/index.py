@@ -1,4 +1,5 @@
 import importlib
+import importlib.util
 import os
 from typing import Any
 from fastapi import Request, HTTPException
@@ -50,6 +51,7 @@ class SyncStatus(str, enum.Enum):
 
 class Seller(Base):
     __tablename__ = "xshop_seller"
+    __table_args__ = ({"extend_existing": True},)
     id            = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email         = Column(String, nullable=False, unique=True, index=True)
     password_hash = Column(String, nullable=False)
@@ -67,6 +69,7 @@ class Seller(Base):
 
 class SellerProfile(Base):
     __tablename__ = "xshop_seller_profile"
+    __table_args__ = ({"extend_existing": True},)
     id         = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     seller_id  = Column(UUID(as_uuid=True), ForeignKey("xshop_seller.id", ondelete="CASCADE"), nullable=False, unique=True)
     full_name  = Column(String, nullable=True)
@@ -79,6 +82,7 @@ class SellerProfile(Base):
 
 class Store(Base):
     __tablename__  = "xshop_store"
+    __table_args__ = ({"extend_existing": True},)
     id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     seller_id      = Column(UUID(as_uuid=True), ForeignKey("xshop_seller.id", ondelete="CASCADE"), nullable=False, unique=True)
     name           = Column(String, nullable=False)
@@ -96,6 +100,7 @@ class Store(Base):
 
 class XAccount(Base):
     __tablename__     = "xshop_x_account"
+    __table_args__ = ({"extend_existing": True},)
     id                = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     seller_id         = Column(UUID(as_uuid=True), ForeignKey("xshop_seller.id", ondelete="CASCADE"), nullable=False, unique=True)
     x_user_id         = Column(String, nullable=True, index=True)
@@ -117,6 +122,7 @@ class XAccount(Base):
 
 class OAuthToken(Base):
     __tablename__ = "xshop_oauth_token"
+    __table_args__ = ({"extend_existing": True},)
     id            = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     x_account_id  = Column(UUID(as_uuid=True), ForeignKey("xshop_x_account.id", ondelete="CASCADE"), nullable=False, unique=True)
     access_token  = Column(Text, nullable=False)
@@ -131,6 +137,7 @@ class OAuthToken(Base):
 
 class Product(Base):
     __tablename__       = "xshop_product"
+    __table_args__ = ({"extend_existing": True},)
     id                  = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     seller_id           = Column(UUID(as_uuid=True), ForeignKey("xshop_seller.id", ondelete="CASCADE"), nullable=False, index=True)
     external_product_id = Column(String, nullable=False, index=True)
@@ -151,6 +158,7 @@ class Product(Base):
 
 class ProductSyncLog(Base):
     __tablename__ = "xshop_product_sync_log"
+    __table_args__ = ({"extend_existing": True},)
     id            = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     seller_id     = Column(UUID(as_uuid=True), ForeignKey("xshop_seller.id", ondelete="CASCADE"), nullable=False, index=True)
     status        = Column(String, nullable=False)
@@ -161,6 +169,7 @@ class ProductSyncLog(Base):
 
 class PublishJob(Base):
     __tablename__ = "xshop_publish_job"
+    __table_args__ = ({"extend_existing": True},)
     id            = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     seller_id     = Column(UUID(as_uuid=True), ForeignKey("xshop_seller.id", ondelete="CASCADE"), nullable=False, index=True)
     product_id    = Column(UUID(as_uuid=True), ForeignKey("xshop_product.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -178,6 +187,7 @@ class PublishJob(Base):
 
 class Order(Base):
     __tablename__  = "xshop_order"
+    __table_args__ = ({"extend_existing": True},)
     id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     seller_id      = Column(UUID(as_uuid=True), ForeignKey("xshop_seller.id", ondelete="CASCADE"), nullable=False, index=True)
     product_id     = Column(UUID(as_uuid=True), ForeignKey("xshop_product.id", ondelete="CASCADE"), nullable=False)
@@ -194,6 +204,7 @@ class Order(Base):
 
 class AnalyticsEvent(Base):
     __tablename__ = "xshop_analytics_event"
+    __table_args__ = ({"extend_existing": True},)
     id            = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     seller_id     = Column(UUID(as_uuid=True), ForeignKey("xshop_seller.id", ondelete="CASCADE"), nullable=False, index=True)
     event_type    = Column(String, nullable=False)
@@ -203,6 +214,7 @@ class AnalyticsEvent(Base):
 
 class SellerRefreshToken(Base):
     __tablename__ = "xshop_seller_refresh_token"
+    __table_args__ = ({"extend_existing": True},)
     id            = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     seller_id     = Column(UUID(as_uuid=True), ForeignKey("xshop_seller.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
     token_hash    = Column(String, nullable=False)
@@ -214,6 +226,7 @@ class SellerRefreshToken(Base):
 
 class PublishedPost(Base):
     __tablename__  = "xshop_published_post"
+    __table_args__ = ({"extend_existing": True},)
     id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     seller_id      = Column(UUID(as_uuid=True), ForeignKey("xshop_seller.id", ondelete="CASCADE"), nullable=False, index=True)
     product_id     = Column(UUID(as_uuid=True), ForeignKey("xshop_product.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -226,9 +239,10 @@ class PublishedPost(Base):
 
 class SchedulerJob(Base):
     __tablename__ = "xshop_scheduler_job"
+    __table_args__ = ({"extend_existing": True},)
     id            = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     job_name      = Column(String, nullable=False, index=True)
-    status        = Column(String, nullable=False, default="running")  # running | success | failed
+    status        = Column(String, nullable=False, default="running")
     started_at    = Column(DateTime(timezone=True), nullable=False)
     finished_at   = Column(DateTime(timezone=True), nullable=True)
     error_msg     = Column(Text, nullable=True)
@@ -237,18 +251,17 @@ class SchedulerJob(Base):
 
 
 # ============================================================
-# SERVICE LOADER  (avoids invalid module name with leading digit)
+# SERVICE LOADER
 # ============================================================
 
 _BASE = os.path.dirname(__file__)
+_services_cache = {}
 
 def _load_service(name: str):
-    # Validate service name - only alphanumeric and underscore to prevent path injection
     if not name.replace('_', '').isalnum():
         raise ValueError(f"Invalid service name: {name}")
     
     path = os.path.join(_BASE, "app", "services", f"{name}.py")
-    # Resolve to absolute path and validate it's within expected directory
     abs_path = os.path.abspath(path)
     expected_base = os.path.abspath(os.path.join(_BASE, "app", "services"))
     if not abs_path.startswith(expected_base):
@@ -261,19 +274,10 @@ def _load_service(name: str):
     spec.loader.exec_module(mod)
     return mod
 
-_auth      = _load_service("auth")
-_store     = _load_service("store")
-_x_account = _load_service("x_account")
-_products  = _load_service("products")
-_publish   = _load_service("publish")
-_dashboard = _load_service("dashboard")
-
-
-# ============================================================
-# PUBLIC ACTIONS  (no auth required)
-# ============================================================
-
-_PUBLIC_ACTIONS = {"register", "login", "refresh_token", "x_oauth_callback"}
+def _get_service(name: str):
+    if name not in _services_cache:
+        _services_cache[name] = _load_service(name)
+    return _services_cache[name]
 
 
 # ============================================================
@@ -287,6 +291,14 @@ async def index(_p={'data': Any}):
             body   = await request.json() if await request.body() else {}
             action = body.get("action") or request.query_params.get("action") or ""
 
+            # Lazy load services
+            _auth      = _get_service("auth")
+            _store     = _get_service("store")
+            _x_account = _get_service("x_account")
+            _products  = _get_service("products")
+            _publish   = _get_service("publish")
+            _dashboard = _get_service("dashboard")
+            
             # ---- Auth ----
             if action == "register":
                 return await _auth.register(body, db, Seller, SellerProfile, SellerRefreshToken)
@@ -372,12 +384,18 @@ async def index(_p={'data': Any}):
                 result   = await db.execute(select(Instance).where(Instance.id == params['id']))
                 instance = result.scalar_one_or_none()
                 if not instance:
-                    raise Exception("invalid id")
+                    raise ValueError("invalid id")
                 utility_id = f"{instance.utility_id}"
             if "utility_id" in body:   utility_id = body['utility_id']
             if "utility_id" in params: utility_id = params['utility_id']
             if not utility_id:
-                raise Exception("utility_id is not valid")
+                raise ValueError("utility_id is not valid")
+            
+            if not utility_id.replace('-', '').isalnum() or '..' in utility_id or '/' in utility_id:
+                raise ValueError(f"Invalid utility_id format: {utility_id}")
+            if len(utility_id) > 50:
+                raise ValueError("utility_id too long")
+            
             lib_name, _lib_ = include_file(f"src/shared/utility/l/{utility_id}/index.py", lambda name, module: ())[0]
             _, get_schema_fn, *_ = await _lib_.index({'data': {}})
             _r      = await get_schema_fn(request)
@@ -402,6 +420,8 @@ async def index(_p={'data': Any}):
                 }
             }
             return _r
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=f"Schema validation error: {str(e)}")
         except Exception as e:
             raise HTTPException(status_code=422, detail=f"Schema validation error: {e.args}")
 
@@ -417,11 +437,19 @@ async def index(_p={'data': Any}):
             )
             instance = result.scalar_one_or_none()
             if not instance:
-                raise Exception("invalid id")
+                raise ValueError("invalid instance")
             utility_id = f"{instance.utility_id}"
+            
+            if not utility_id.replace('-', '').isalnum() or '..' in utility_id or '/' in utility_id:
+                raise ValueError(f"Invalid utility_id format: {utility_id}")
+            if len(utility_id) > 50:
+                raise ValueError("utility_id too long")
+            
             lib_name, _lib_ = include_file(f"src/shared/utility/l/{utility_id}/index.py", lambda name, module: ())[0]
             _, __, get_schema_run_fn, *_ = await _lib_.index({'data': {}})
             return await get_schema_run_fn(request)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=f"Schema validation error: {str(e)}")
         except Exception as e:
             raise HTTPException(status_code=422, detail=f"Schema validation error: {e.args}")
 
@@ -437,11 +465,19 @@ async def index(_p={'data': Any}):
             )
             instance = result.scalar_one_or_none()
             if not instance:
-                raise Exception("invalid id")
+                raise ValueError("invalid instance")
             utility_id = f"{instance.utility_id}"
+            
+            if not utility_id.replace('-', '').isalnum() or '..' in utility_id or '/' in utility_id:
+                raise ValueError(f"Invalid utility_id format: {utility_id}")
+            if len(utility_id) > 50:
+                raise ValueError("utility_id too long")
+            
             lib_name, _lib_ = include_file(f"src/shared/utility/l/{utility_id}/index.py", lambda name, module: ())[0]
             _, __, ___, __, get_doc_fn = await _lib_.index({'data': {'instance': instance}})
             return await get_doc_fn(request)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=f"Schema validation error: {str(e)}")
         except Exception as e:
             raise HTTPException(status_code=422, detail=f"Schema validation error: {e.args}")
 

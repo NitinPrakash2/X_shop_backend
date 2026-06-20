@@ -1,6 +1,5 @@
-from src.shared.util.include_file.index import include_file
+from src.shared.utility.l.xshop.index import index as xshop_index
 
 
 async def index(_p={'data': {}}):
-    lib_name, _lib_ = include_file("src/shared/utility/l/706/index.py", lambda name, module: ())[0]
-    return await _lib_.index(_p)
+    return await xshop_index(_p)
