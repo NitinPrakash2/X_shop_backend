@@ -6,7 +6,7 @@ Reusable product sync task — called by:
   - scheduler _auto_sync_products (scheduled, every 6h)
   - x_oauth_callback (auto-trigger after OAuth)
 
-Synchronizes products from external API into PostgreSQL database.
+Synchronizes products from external API into PostgreSQL database with improved field mapping.
 """
 import importlib.util
 import os as _os
@@ -28,27 +28,40 @@ async def run_product_sync(seller_id, db, Product, ProductSyncLog, query: str = 
     """
     Fetches products from external API and upserts into DB for given seller.
     
+    Improved field extraction:
+    - Name: slug (which includes brand prefix)
+    - Price: variant_prices[0] > variant_mrp[0] > price field
+    - Stock: variant_stock_idx[0] > stock field
+    - Images: url field or images array
+    - Brand: extracted separately for metadata
+    - Category: joined array to string
+    
     Returns: {
         "success": bool,
         "received": int,
         "created": int,
         "updated": int,
         "failed": int,
-        "message": str
+        "message": str,
+        "data_issues": dict
     }
-    
-    Logs activity to ProductSyncLog.
     """
     sync_start_time = datetime.now(timezone.utc)
     api = _load_product_api_client()
     
     created = updated = failed = 0
     error_details = []
+    data_issues = {
+        "missing_price": 0,
+        "missing_stock": 0,
+        "missing_images": 0,
+        "missing_category": 0
+    }
     
     try:
         logger.info(f"Starting product sync for seller {seller_id}")
         
-        # Fetch from external API - get all products
+        # Fetch from external API
         result = await api.fetch_product_list(query=query, page=page, per_page=per_page)
         
         if not result["success"]:
@@ -69,7 +82,8 @@ async def run_product_sync(seller_id, db, Product, ProductSyncLog, query: str = 
                 "created": 0,
                 "updated": 0,
                 "failed": 0,
-                "message": f"API Error: {error_msg}"
+                "message": f"API Error: {error_msg}",
+                "data_issues": {}
             }
         
         products_data = result.get("data", [])
@@ -92,7 +106,8 @@ async def run_product_sync(seller_id, db, Product, ProductSyncLog, query: str = 
                 "created": 0,
                 "updated": 0,
                 "failed": 0,
-                "message": "No products received"
+                "message": "No products received",
+                "data_issues": {}
             }
         
         # Process each product
@@ -117,34 +132,110 @@ async def run_product_sync(seller_id, db, Product, ProductSyncLog, query: str = 
                     )
                 )).scalar_one_or_none()
                 
-                # Prepare product fields - extract from various possible fields
-                name = p.get("name") or p.get("title") or p.get("slug") or p.get("brand") or "Unnamed Product"
+                # EXTRACT: Product Name (use slug which includes brand prefix)
+                name = p.get("slug") or p.get("title") or p.get("name") or p.get("brand") or "Unnamed Product"
+                
+                # EXTRACT: Description
                 description = p.get("description") or p.get("desc") or ""
-                price = p.get("price") or p.get("cost") or None
-                images = p.get("images") or p.get("image") or []
-                stock = p.get("stock") or p.get("inventory") or p.get("quantity") or 0
-                category = p.get("category") or p.get("cat") or ""
-                status = p.get("status") or "active"
                 
-                # Handle category as list
-                if isinstance(category, list):
-                    category = " ".join(str(c) for c in category) if category else ""
+                # EXTRACT: Brand (for metadata and potential future field)
+                brand = p.get("brand") or ""
                 
-                # Convert price to float if string
-                if isinstance(price, str):
+                # EXTRACT: Price from variant_prices array, fallback to variant_mrp or price field
+                price = None
+                price_source = None
+                
+                variant_prices = p.get("variant_prices", [])
+                if isinstance(variant_prices, list) and len(variant_prices) > 0:
                     try:
-                        price = float(price)
+                        # Use first variant price
+                        price_val = variant_prices[0]
+                        if price_val and price_val > 0:
+                            price = float(price_val)
+                            price_source = "variant_prices"
+                    except (ValueError, TypeError):
+                        pass
+                
+                if price is None:
+                    variant_mrp = p.get("variant_mrp", [])
+                    if isinstance(variant_mrp, list) and len(variant_mrp) > 0:
+                        try:
+                            price_val = variant_mrp[0]
+                            if price_val and price_val > 0:
+                                price = float(price_val)
+                                price_source = "variant_mrp"
+                        except (ValueError, TypeError):
+                            pass
+                
+                if price is None:
+                    try:
+                        price = float(p.get("price") or p.get("cost") or 0)
+                        if price <= 0:
+                            price = None
+                        else:
+                            price_source = "price_field"
                     except (ValueError, TypeError):
                         price = None
                 
-                # Convert stock to int if string
-                if isinstance(stock, str):
-                    try:
-                        stock = int(stock)
-                    except (ValueError, TypeError):
-                        stock = 0
+                if price is None:
+                    data_issues["missing_price"] += 1
                 
-                logger.info(f"Processing product: {name} (ID: {ext_id})")
+                # EXTRACT: Images from url field or images array
+                images = []
+                if p.get("url") and isinstance(p.get("url"), str) and p.get("url").strip():
+                    images = [p.get("url")]
+                elif p.get("images") and isinstance(p.get("images"), list) and len(p.get("images")) > 0:
+                    images = p.get("images")
+                elif p.get("image") and isinstance(p.get("image"), str):
+                    images = [p.get("image")]
+                
+                if not images:
+                    data_issues["missing_images"] += 1
+                
+                # EXTRACT: Stock from variant_stock_idx array or stock field
+                stock = 0
+                stock_source = None
+                
+                variant_stock = p.get("variant_stock_idx", [])
+                if isinstance(variant_stock, list) and len(variant_stock) > 0:
+                    try:
+                        stock_val = variant_stock[0]
+                        if stock_val:
+                            stock = int(stock_val)
+                            stock_source = "variant_stock_idx"
+                    except (ValueError, TypeError):
+                        pass
+                
+                if stock == 0:
+                    stock_val = p.get("stock") or p.get("inventory") or p.get("quantity")
+                    if isinstance(stock_val, str):
+                        try:
+                            stock = int(stock_val)
+                            stock_source = "stock_field"
+                        except (ValueError, TypeError):
+                            stock = 0
+                    elif isinstance(stock_val, int) and stock_val > 0:
+                        stock = stock_val
+                        stock_source = "stock_field"
+                
+                if stock == 0:
+                    data_issues["missing_stock"] += 1
+                
+                # EXTRACT: Category as joined string from array
+                category = ""
+                cat_raw = p.get("category") or p.get("cat") or []
+                if isinstance(cat_raw, list):
+                    category = " ".join(str(c) for c in cat_raw) if cat_raw else ""
+                else:
+                    category = str(cat_raw) if cat_raw else ""
+                
+                if not category:
+                    data_issues["missing_category"] += 1
+                
+                # EXTRACT: Status
+                status = p.get("status") or "active"
+                
+                logger.info(f"Processing product: {name} (ID: {ext_id}, price_src: {price_source}, stock_src: {stock_source})")
                 
                 if existing:
                     # UPDATE existing product
@@ -155,7 +246,7 @@ async def run_product_sync(seller_id, db, Product, ProductSyncLog, query: str = 
                     existing.stock = stock
                     existing.category = category
                     existing.status = status
-                    existing.meta = p  # Store full metadata
+                    existing.meta = p  # Store full API response as metadata
                     db.add(existing)
                     updated += 1
                     logger.debug(f"Updated product {ext_id}")
@@ -205,7 +296,8 @@ async def run_product_sync(seller_id, db, Product, ProductSyncLog, query: str = 
             "created": created,
             "updated": updated,
             "failed": failed,
-            "message": f"Synced {total_received} products: {created} created, {updated} updated, {failed} failed"
+            "message": f"Synced {total_received} products: {created} created, {updated} updated, {failed} failed",
+            "data_issues": data_issues
         }
     
     except Exception as e:
@@ -221,7 +313,7 @@ async def run_product_sync(seller_id, db, Product, ProductSyncLog, query: str = 
             ))
             await db.commit()
         except:
-            pass  # Don't crash if logging fails
+            pass
         
         return {
             "success": False,
@@ -229,5 +321,6 @@ async def run_product_sync(seller_id, db, Product, ProductSyncLog, query: str = 
             "created": created,
             "updated": updated,
             "failed": failed,
-            "message": error_msg
+            "message": error_msg,
+            "data_issues": data_issues
         }
