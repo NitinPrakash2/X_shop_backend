@@ -161,7 +161,7 @@ class ProductSyncLog(Base):
     __table_args__ = ({"extend_existing": True},)
     id            = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     seller_id     = Column(UUID(as_uuid=True), ForeignKey("xshop_seller.id", ondelete="CASCADE"), nullable=False, index=True)
-    status        = Column(String, nullable=False)
+    status        = Column(String, nullable=False, default="pending")
     synced_count  = Column(Integer, default=0)
     error_msg     = Column(Text, nullable=True)
     created_at    = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
