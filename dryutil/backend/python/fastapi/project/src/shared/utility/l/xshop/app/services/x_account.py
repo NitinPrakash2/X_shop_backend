@@ -9,6 +9,7 @@ from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from src.shared.util.jwt_handler.index import JWTHandler
 
 X_CLIENT_ID    = os.getenv("X_CLIENT_ID", "")
 X_CALLBACK_URL = os.getenv("X_CALLBACK_URL", "http://localhost:8000/client-public/api/i/ona/xshop?action=x_oauth_callback")
@@ -16,6 +17,18 @@ X_SCOPES       = "tweet.read tweet.write users.read offline.access"
 X_AUTH_URL     = "https://twitter.com/i/oauth2/authorize"
 
 _pkce_store: dict = {}
+
+
+def _create_access_token(seller_id: str, email: str) -> str:
+    return JWTHandler.create_token({
+        "sub": seller_id,
+        "email": email,
+        "security": {"party": ["party_2"]},
+        "type": "access"
+    })
+
+def _create_refresh_token() -> str:
+    return secrets.token_urlsafe(48)
 
 
 def _load_x_client():
@@ -48,7 +61,13 @@ def _build_oauth_url(state: str, code_challenge: str) -> str:
 
 
 async def x_oauth_init(request: Request) -> JSONResponse:
-    seller_id               = request.state.user["id"]
+    # For public OAuth init, allow without auth - use temp state
+    try:
+        seller_id = request.state.user["id"]
+    except (AttributeError, KeyError):
+        # Public OAuth flow - state will be set during callback
+        seller_id = "temp_" + secrets.token_urlsafe(16)
+    
     code_verifier, code_challenge = _make_pkce()
     state                   = str(seller_id)
     _pkce_store[state]      = code_verifier
@@ -60,7 +79,7 @@ async def x_oauth_init(request: Request) -> JSONResponse:
 async def x_oauth_callback(request: Request, body: dict, db: AsyncSession, XAccount, OAuthToken, Product=None, ProductSyncLog=None) -> JSONResponse:
     code      = body.get("code") or request.query_params.get("code")
     state     = body.get("state") or request.query_params.get("state")
-    seller_id = state
+    
     if not code or not state:
         raise HTTPException(422, "code and state required")
 
@@ -76,16 +95,50 @@ async def x_oauth_callback(request: Request, body: dict, db: AsyncSession, XAcco
     # 2. Fetch X user info
     user_data = await x.fetch_user_info(token_data["access_token"])
     metrics   = user_data.get("public_metrics", {})
+    x_user_id = user_data.get("id")
+    x_username = user_data.get("username")
+    
+    if not x_user_id or not x_username:
+        raise HTTPException(400, "Failed to fetch X user info")
 
-    # 3. Upsert XAccount
+    # 3. Check if seller exists with this X account, if not create one
+    from src.shared.utility.l.xshop.app.models.seller import Seller, SellerProfile
+    from src.shared.util.jwt_handler.index import create_access_token, create_refresh_token
+    import hashlib
+    
+    seller = (await db.execute(
+        select(Seller).join(XAccount).where(XAccount.x_user_id == x_user_id)
+    )).scalar_one_or_none()
+    
+    if not seller:
+        # Create new seller with X username as email
+        email = f"{x_username}@x.temp"
+        random_password = secrets.token_urlsafe(32)
+        password_hash = hashlib.sha256(random_password.encode()).hexdigest()
+        
+        seller = Seller(email=email, password_hash=password_hash, is_active=True)
+        db.add(seller)
+        await db.flush()
+        
+        # Create profile
+        profile = SellerProfile(
+            seller_id=seller.id,
+            full_name=user_data.get("name", x_username)
+        )
+        db.add(profile)
+        await db.flush()
+    
+    seller_id = str(seller.id)
+
+    # 4. Upsert XAccount
     x_acc = (await db.execute(select(XAccount).where(XAccount.seller_id == seller_id))).scalar_one_or_none()
     if not x_acc:
         x_acc = XAccount(seller_id=seller_id)
         db.add(x_acc)
         await db.flush()
 
-    x_acc.x_user_id         = user_data.get("id")
-    x_acc.username          = user_data.get("username")
+    x_acc.x_user_id         = x_user_id
+    x_acc.username          = x_username
     x_acc.display_name      = user_data.get("name")
     x_acc.profile_image_url = user_data.get("profile_image_url")
     x_acc.bio               = user_data.get("description")
@@ -95,7 +148,7 @@ async def x_oauth_callback(request: Request, body: dict, db: AsyncSession, XAcco
     x_acc.last_synced_at    = datetime.now(timezone.utc)
     x_acc.account_meta      = user_data
 
-    # 4. Upsert OAuthToken
+    # 5. Upsert OAuthToken
     token_row = (await db.execute(select(OAuthToken).where(OAuthToken.x_account_id == x_acc.id))).scalar_one_or_none()
     if not token_row:
         token_row = OAuthToken(x_account_id=x_acc.id)
@@ -109,7 +162,11 @@ async def x_oauth_callback(request: Request, body: dict, db: AsyncSession, XAcco
 
     await db.commit()
 
-    # 5. Auto-trigger product sync in background (non-blocking)
+    # 6. Generate JWT tokens for seller
+    access_token = _create_access_token(seller_id, seller.email)
+    refresh_token = _create_refresh_token()
+
+    # 7. Auto-trigger product sync in background (non-blocking)
     if Product and ProductSyncLog:
         try:
             import asyncio
@@ -122,10 +179,12 @@ async def x_oauth_callback(request: Request, body: dict, db: AsyncSession, XAcco
             pass  # sync failure must not break OAuth flow
 
     return JSONResponse({"status": "success", "output": {
-        "username":     x_acc.username,
-        "display_name": x_acc.display_name,
-        "is_connected": x_acc.is_connected,
-        "auto_sync":    "product sync triggered in background",
+        "access_token":  access_token,
+        "refresh_token": refresh_token,
+        "username":      x_acc.username,
+        "display_name":  x_acc.display_name,
+        "is_connected":  x_acc.is_connected,
+        "auto_sync":     "product sync triggered in background",
     }})
 
 
