@@ -309,7 +309,7 @@ async def index(_p={'data': Any}):
             if action == "logout":
                 return await _auth.logout(request, db, SellerRefreshToken)
             if action == "me":
-                return await _auth.me(request, db, Seller, SellerProfile)
+                return await _auth.me(request, db, Seller, SellerProfile, XAccount)
             if action == "update_profile":
                 return await _auth.update_profile(request, body, db, SellerProfile)
 

@@ -157,20 +157,39 @@ async def logout(request: Request, db: AsyncSession, SellerRefreshToken) -> JSON
     return JSONResponse({"status": "success", "output": {"logged_out": True}})
 
 
-async def me(request: Request, db: AsyncSession, Seller, SellerProfile) -> JSONResponse:
+async def me(request: Request, db: AsyncSession, Seller, SellerProfile, XAccount=None) -> JSONResponse:
     seller_id = request.state.user["id"]
     from sqlalchemy.future import select
     seller  = (await db.execute(select(Seller).where(Seller.id == seller_id))).scalar_one_or_none()
     if not seller:
         raise HTTPException(404, "seller not found")
     profile = (await db.execute(select(SellerProfile).where(SellerProfile.seller_id == seller.id))).scalar_one_or_none()
-    return JSONResponse({"status": "success", "output": {
+
+    output = {
         "id":        str(seller.id),
         "email":     seller.email,
         "is_active": seller.is_active,
         "full_name": profile.full_name if profile else None,
         "phone":     profile.phone     if profile else None,
-    }})
+    }
+
+    # Include X account info if available
+    if XAccount is not None:
+        x_acc = (await db.execute(select(XAccount).where(XAccount.seller_id == seller_id))).scalar_one_or_none()
+        if x_acc and x_acc.is_connected:
+            output["x_account"] = {
+                "is_connected":      True,
+                "username":          x_acc.username,
+                "display_name":      x_acc.display_name,
+                "profile_image_url": x_acc.profile_image_url,
+                "bio":               x_acc.bio,
+                "followers_count":   x_acc.followers_count,
+                "following_count":   x_acc.following_count,
+            }
+        else:
+            output["x_account"] = {"is_connected": False}
+
+    return JSONResponse({"status": "success", "output": output})
 
 
 async def update_profile(request: Request, body: dict, db: AsyncSession, SellerProfile) -> JSONResponse:
