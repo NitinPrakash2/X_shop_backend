@@ -164,12 +164,13 @@ async def retry_failed_jobs(request: Request, db: AsyncSession, Product, Publish
 
 async def get_publish_jobs(request: Request, db: AsyncSession, PublishJob) -> JSONResponse:
     seller_id = request.state.user["id"]
+    body      = await request.json()
     repo      = _load_publish_repo(db, PublishJob)
     jobs      = await repo.list_jobs(
         seller_id,
-        status = request.query_params.get("status"),
-        page   = int(request.query_params.get("page", 1)),
-        limit  = int(request.query_params.get("limit", 20)),
+        status = body.get("status") or request.query_params.get("status"),
+        page   = int(body.get("page") or request.query_params.get("page", 1)),
+        limit  = int(body.get("limit") or request.query_params.get("limit", 20)),
     )
     return JSONResponse({"status": "success", "output": [
         {
@@ -187,11 +188,12 @@ async def get_publish_jobs(request: Request, db: AsyncSession, PublishJob) -> JS
 
 async def get_published_posts(request: Request, db: AsyncSession, PublishedPost) -> JSONResponse:
     seller_id = request.state.user["id"]
+    body      = await request.json()
     repo      = _load_publish_repo(db, None, PublishedPost)
     posts     = await repo.list_published_posts(
         seller_id,
-        page  = int(request.query_params.get("page", 1)),
-        limit = int(request.query_params.get("limit", 20)),
+        page  = int(body.get("page") or request.query_params.get("page", 1)),
+        limit = int(body.get("limit") or request.query_params.get("limit", 20)),
     )
     return JSONResponse({"status": "success", "output": [
         {

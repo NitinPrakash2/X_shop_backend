@@ -30,11 +30,12 @@ async def sync_products(request: Request, db: AsyncSession, Product, ProductSync
     Fetches products from external API and syncs them.
     """
     seller_id = request.state.user["id"]
+    body = await request.json()
     
     try:
-        query = request.query_params.get("query", "")
-        page = int(request.query_params.get("page", 1))
-        per_page = int(request.query_params.get("per_page", 100))
+        query = body.get("query") or request.query_params.get("query", "")
+        page = int(body.get("page") or request.query_params.get("page", 1))
+        per_page = int(body.get("per_page") or request.query_params.get("per_page", 100))
         
         logger.info(f"Syncing products for seller {seller_id} with query={query}")
         
@@ -65,10 +66,13 @@ async def sync_products(request: Request, db: AsyncSession, Product, ProductSync
 async def get_sync_logs(request: Request, db: AsyncSession, ProductSyncLog) -> JSONResponse:
     """Get product sync history for seller."""
     seller_id = request.state.user["id"]
-    page = int(request.query_params.get("page", 1))
-    limit = int(request.query_params.get("limit", 20))
+    body = await request.json()
+    page = int(body.get("page") or request.query_params.get("page", 1))
+    limit = int(body.get("limit") or request.query_params.get("limit", 20))
     
     from sqlalchemy.future import select
+    from sqlalchemy import func
+    total = (await db.execute(select(func.count()).select_from(ProductSyncLog).where(ProductSyncLog.seller_id == seller_id))).scalar()
     logs = (await db.execute(
         select(ProductSyncLog).where(ProductSyncLog.seller_id == seller_id)
         .order_by(ProductSyncLog.created_at.desc())
@@ -77,30 +81,36 @@ async def get_sync_logs(request: Request, db: AsyncSession, ProductSyncLog) -> J
     
     return JSONResponse({
         "status": "success",
-        "output": [
-            {
-                "id": str(l.id),
-                "status": l.status,
-                "synced_count": l.synced_count,
-                "error_msg": l.error_msg,
-                "created_at": l.created_at.isoformat(),
-            } for l in logs
-        ]
+        "output": {
+            "items": [
+                {
+                    "id": str(l.id),
+                    "status": l.status,
+                    "synced_count": l.synced_count,
+                    "error_msg": l.error_msg,
+                    "created_at": l.created_at.isoformat(),
+                } for l in logs
+            ],
+            "total": total,
+            "page": page,
+            "limit": limit,
+        }
     })
 
 
 async def get_products(request: Request, db: AsyncSession, Product, ProductSyncLog) -> JSONResponse:
     """Get products for seller with real API data."""
     seller_id = request.state.user["id"]
+    body = await request.json()
     repo = _load_repo(db, Product, ProductSyncLog)
-    page = int(request.query_params.get("page", 1))
-    limit = int(request.query_params.get("limit", 20))
+    page = int(body.get("page") or request.query_params.get("page", 1))
+    limit = int(body.get("limit") or request.query_params.get("limit", 20))
     
     total, products = await repo.list(
         seller_id,
-        search = request.query_params.get("search"),
-        category = request.query_params.get("category"),
-        status = request.query_params.get("status"),
+        search = body.get("search") or request.query_params.get("search"),
+        category = body.get("category") or request.query_params.get("category"),
+        status = body.get("status") or request.query_params.get("status"),
         page=page, limit=limit,
     )
     

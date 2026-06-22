@@ -34,9 +34,10 @@ async def get_dashboard(request: Request, db: AsyncSession, Seller, XAccount, Pr
 
 async def get_orders(request: Request, db: AsyncSession, Order) -> JSONResponse:
     seller_id = request.state.user["id"]
-    page      = int(request.query_params.get("page", 1))
-    limit     = int(request.query_params.get("limit", 20))
-    status    = request.query_params.get("status")
+    body      = await request.json()
+    page      = int(body.get("page") or request.query_params.get("page", 1))
+    limit     = int(body.get("limit") or request.query_params.get("limit", 20))
+    status    = body.get("status") or request.query_params.get("status")
 
     query = select(Order).where(Order.seller_id == seller_id)
     if status:

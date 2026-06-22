@@ -180,14 +180,36 @@ async def run_product_sync(seller_id, db, Product, ProductSyncLog, query: str = 
                 if price is None:
                     data_issues["missing_price"] += 1
                 
-                # EXTRACT: Images from url field or images array
+                # EXTRACT: Images from common API response fields
                 images = []
-                if p.get("url") and isinstance(p.get("url"), str) and p.get("url").strip():
-                    images = [p.get("url")]
-                elif p.get("images") and isinstance(p.get("images"), list) and len(p.get("images")) > 0:
-                    images = p.get("images")
-                elif p.get("image") and isinstance(p.get("image"), str):
-                    images = [p.get("image")]
+                img_sources = [
+                    p.get("url"),
+                    p.get("image_url"), p.get("img_url"),
+                    p.get("image"), p.get("img"),
+                    p.get("thumbnail"), p.get("thumbnail_url"),
+                    p.get("picture"), p.get("picture_url"),
+                    p.get("photo"), p.get("photos"),
+                    p.get("media_url"), p.get("media"),
+                    p.get("imageSrc"), p.get("src"),
+                    p.get("main_image"), p.get("featured_image"),
+                    p.get("display_image"), p.get("primary_image"),
+                ]
+                img_arrays = [
+                    p.get("images"), p.get("image_urls"), p.get("img_urls"),
+                    p.get("pictures"), p.get("photos"), p.get("media_urls"),
+                    p.get("gallery"), p.get("all_images"),
+                ]
+                for src in img_sources:
+                    if src and isinstance(src, str) and src.strip():
+                        images = [src.strip()]
+                        break
+                if not images:
+                    for arr in img_arrays:
+                        if arr and isinstance(arr, list) and len(arr) > 0:
+                            valid = [i for i in arr if isinstance(i, str) and i.strip()]
+                            if valid:
+                                images = valid
+                                break
                 
                 if not images:
                     data_issues["missing_images"] += 1
