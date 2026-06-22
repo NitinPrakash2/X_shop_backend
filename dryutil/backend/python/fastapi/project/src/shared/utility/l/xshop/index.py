@@ -174,7 +174,7 @@ class PublishJob(Base):
     seller_id     = Column(UUID(as_uuid=True), ForeignKey("xshop_seller.id", ondelete="CASCADE"), nullable=False, index=True)
     product_id    = Column(UUID(as_uuid=True), ForeignKey("xshop_product.id", ondelete="CASCADE"), nullable=False, index=True)
     x_post_id     = Column(String, nullable=True)
-    status        = Column(String, default="pending", nullable=False)
+    status        = Column(Enum("pending", "scheduled", "publishing", "published", "failed", name="xshop_publish_status", create_type=False), nullable=False, default="pending")
     scheduled_at  = Column(DateTime(timezone=True), nullable=True)
     published_at  = Column(DateTime(timezone=True), nullable=True)
     error_msg     = Column(Text, nullable=True)
@@ -250,6 +250,30 @@ class SchedulerJob(Base):
     created_at    = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+import logging
+import asyncio
+logger = logging.getLogger(__name__)
+
+_tables_created = False
+_tables_lock = asyncio.Lock()
+
+
+async def _ensure_tables(db=None):
+    global _tables_created
+    if _tables_created:
+        return
+    async with _tables_lock:
+        if _tables_created:
+            return
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            _tables_created = True
+            logger.info("All xshop tables ensured")
+        except Exception as ex:
+            logger.error(f"_ensure_tables failed: {ex}")
+
+
 # ============================================================
 # SERVICE LOADER
 # ============================================================
@@ -288,6 +312,7 @@ async def index(_p={'data': Any}):
 
     async def i(request: Request, params: dict, db: AsyncSession):
         try:
+            await _ensure_tables(db)
             body   = await request.json() if await request.body() else {}
             action = body.get("action") or request.query_params.get("action") or ""
 
@@ -355,9 +380,9 @@ async def index(_p={'data': Any}):
             if action == "retry_failed_jobs":
                 return await _publish.retry_failed_jobs(request, db, Product, PublishJob, XAccount, OAuthToken, PublishedPost)
             if action == "get_publish_jobs":
-                return await _publish.get_publish_jobs(request, db, PublishJob)
+                return await _publish.get_publish_jobs(request, body, db, PublishJob)
             if action == "get_published_posts":
-                return await _publish.get_published_posts(request, db, PublishedPost)
+                return await _publish.get_published_posts(request, body, db, PublishedPost)
 
             # ---- Dashboard & Analytics ----
             if action == "get_dashboard":

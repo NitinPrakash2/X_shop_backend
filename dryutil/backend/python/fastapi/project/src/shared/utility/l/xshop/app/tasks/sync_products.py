@@ -183,7 +183,6 @@ async def run_product_sync(seller_id, db, Product, ProductSyncLog, query: str = 
                 # EXTRACT: Images from common API response fields
                 images = []
                 img_sources = [
-                    p.get("url"),
                     p.get("image_url"), p.get("img_url"),
                     p.get("image"), p.get("img"),
                     p.get("thumbnail"), p.get("thumbnail_url"),
@@ -199,14 +198,29 @@ async def run_product_sync(seller_id, db, Product, ProductSyncLog, query: str = 
                     p.get("pictures"), p.get("photos"), p.get("media_urls"),
                     p.get("gallery"), p.get("all_images"),
                 ]
+
+                def _extract_url(val):
+                    if isinstance(val, str) and val.strip():
+                        return val.strip()
+                    if isinstance(val, dict):
+                        for k in ("url", "src", "image", "img", "source", "path", "link"):
+                            v = val.get(k)
+                            if isinstance(v, str) and v.strip():
+                                return v.strip()
+                    return None
+
                 for src in img_sources:
-                    if src and isinstance(src, str) and src.strip():
-                        images = [src.strip()]
+                    url = _extract_url(src)
+                    if url:
+                        images = [url]
                         break
                 if not images:
                     for arr in img_arrays:
                         if arr and isinstance(arr, list) and len(arr) > 0:
-                            valid = [i for i in arr if isinstance(i, str) and i.strip()]
+                            valid = []
+                            for item in arr:
+                                u = _extract_url(item)
+                                if u: valid.append(u)
                             if valid:
                                 images = valid
                                 break

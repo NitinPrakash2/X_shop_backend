@@ -18,6 +18,12 @@ async def fetch_user_info(access_token: str) -> dict:
 
 
 async def post_tweet(access_token: str, text: str) -> str:
+    # Mock mode — skip actual X API call, return fake tweet ID
+    if os.getenv("X_MOCK_TWEETS", "").lower() in ("1", "true", "yes"):
+        import uuid
+        fake_id = str(uuid.uuid4()).replace("-", "")[:19]
+        print(f"[MOCK X] Would tweet: {text[:60]}... → fake ID {fake_id}")
+        return fake_id
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             X_TWEET_URL,

@@ -129,6 +129,7 @@ async def get_products(request: Request, db: AsyncSession, Product, ProductSyncL
                     "stock": p.stock,
                     "category": p.category,
                     "status": p.status,
+                    "meta_keys": list((p.meta or {}).keys()),
                 } for p in products
             ]
         }

@@ -28,6 +28,37 @@ async def _post_tweet(access_token: str, text: str) -> str:
     return await _load_x_client().post_tweet(access_token, text)
 
 
+def _get_product_url(p) -> str:
+    """Extract product page URL from product's meta data."""
+    meta = p.meta or {}
+    for key in ("url", "product_url", "link", "permalink", "product_link", "page_url", "website_url", "source_url", "slug"):
+        val = meta.get(key)
+        if val and isinstance(val, str) and val.startswith("http"):
+            return val
+    # If meta has a slug but no full URL, try to build one
+    slug = meta.get("slug") or meta.get("handle")
+    if slug and isinstance(slug, str):
+        return f"https://example.com/product/{slug.lstrip('/')}"
+    return ""
+
+
+def _build_tweet_text(p, custom_text: str = "") -> str:
+    """Build tweet text with product info + link."""
+    if custom_text:
+        return custom_text[:280]
+    url = _get_product_url(p)
+    text = f"🛍️ {p.name}"
+    if p.description:
+        text += f"\n\n{p.description[:200]}"
+    if p.price:
+        text += f"\n💰 ₹{float(p.price)}"
+    if url:
+        text += f"\n🔗 {url}"
+    elif p.external_product_id:
+        text += f"\n📦 ID: {p.external_product_id[:20]}"
+    return text[:280]
+
+
 async def _get_valid_token(token_row, db) -> str:
     return await _load_x_client().get_valid_token(token_row, db)
 
@@ -53,7 +84,7 @@ async def publish_product(request: Request, body: dict, db: AsyncSession, Produc
         raise HTTPException(404, "product not found")
 
     access_token = await _get_seller_token(seller_id, db, XAccount, OAuthToken)
-    tweet_text   = (body.get("text") or f"🛍️ {p.name}\n\n{p.description or ''}\n\n💰 Price: {p.price}")[:280]
+    tweet_text   = _build_tweet_text(p, body.get("text", ""))
 
     repo = _load_publish_repo(db, PublishJob, PublishedPost)
     job  = await repo.create_job(seller_id, product_id)
@@ -94,7 +125,7 @@ async def publish_bulk(request: Request, body: dict, db: AsyncSession, Product, 
             results.append({"product_id": product_id, "status": "failed", "error": "not found"})
             continue
 
-        tweet_text = f"🛍️ {p.name}\n\n{p.description or ''}\n\n💰 Price: {p.price}"[:280]
+        tweet_text = _build_tweet_text(p)
         job        = await repo.create_job(seller_id, product_id)
         try:
             job.x_post_id    = await _post_tweet(access_token, tweet_text)
@@ -147,7 +178,7 @@ async def retry_failed_jobs(request: Request, db: AsyncSession, Product, Publish
         p = (await db.execute(select(Product).where(Product.id == job.product_id))).scalar_one_or_none()
         if not p:
             continue
-        tweet_text = f"🛍️ {p.name}\n\n{p.description or ''}\n\n💰 Price: {p.price}"[:280]
+        tweet_text = _build_tweet_text(p)
         try:
             job.x_post_id    = await _post_tweet(access_token, tweet_text)
             job.status       = "published"
@@ -162,9 +193,8 @@ async def retry_failed_jobs(request: Request, db: AsyncSession, Product, Publish
     return JSONResponse({"status": "success", "output": {"retried": retried}})
 
 
-async def get_publish_jobs(request: Request, db: AsyncSession, PublishJob) -> JSONResponse:
+async def get_publish_jobs(request: Request, body: dict, db: AsyncSession, PublishJob) -> JSONResponse:
     seller_id = request.state.user["id"]
-    body      = await request.json()
     repo      = _load_publish_repo(db, PublishJob)
     jobs      = await repo.list_jobs(
         seller_id,
@@ -186,9 +216,8 @@ async def get_publish_jobs(request: Request, db: AsyncSession, PublishJob) -> JS
     ]})
 
 
-async def get_published_posts(request: Request, db: AsyncSession, PublishedPost) -> JSONResponse:
+async def get_published_posts(request: Request, body: dict, db: AsyncSession, PublishedPost) -> JSONResponse:
     seller_id = request.state.user["id"]
-    body      = await request.json()
     repo      = _load_publish_repo(db, None, PublishedPost)
     posts     = await repo.list_published_posts(
         seller_id,
