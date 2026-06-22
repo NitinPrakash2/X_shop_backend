@@ -61,6 +61,26 @@ async def root():
     """
 
 
+from fastapi import Request as _Request
+from fastapi.responses import RedirectResponse
+from src.db_config import get_db
+from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import Depends
+
+@app.get("/oauth/callback", include_in_schema=False)
+async def x_oauth_callback_get(request: _Request, db: AsyncSession = Depends(get_db)):
+    """Dedicated GET route for X OAuth callback - no query params in path"""
+    code  = request.query_params.get("code")
+    state = request.query_params.get("state")
+    error = request.query_params.get("error")
+
+    if error or not code or not state:
+        return RedirectResponse(url=f"http://localhost:5173/xshop/login?error={error or 'missing_params'}")
+
+    # Forward to frontend with code and state
+    return RedirectResponse(url=f"http://localhost:5173/xshop/callback?code={code}&state={state}")
+
+
 
 
 """
