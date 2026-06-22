@@ -30,24 +30,51 @@ async def post_tweet(access_token: str, text: str) -> str:
 
 
 async def exchange_code_for_token(code: str, redirect_uri: str, code_verifier: str) -> dict:
+    client_id     = os.getenv("X_CLIENT_ID", "")
+    client_secret = os.getenv("X_CLIENT_SECRET", "")
+
+    # Manually build Basic Auth header (bypass httpx auth= to avoid encoding issues)
+    import base64, urllib.parse
+    raw_creds = f"{client_id}:{client_secret}"
+    b64_creds = base64.b64encode(raw_creds.encode("utf-8")).decode("ascii")
+    auth_header = f"Basic {b64_creds}"
+
+    print(f"[DEBUG] client_id={client_id!r}")
+    print(f"[DEBUG] auth_header_prefix={auth_header[:30]}...")
+    print(f"[DEBUG] redirect_uri={redirect_uri!r}")
+
+    body = urllib.parse.urlencode({
+        "grant_type":    "authorization_code",
+        "code":          code,
+        "redirect_uri":  redirect_uri,
+        "code_verifier": code_verifier,
+    })
+
     async with httpx.AsyncClient() as client:
-        resp = await client.post(X_TOKEN_URL, data={
-            "grant_type":    "authorization_code",
-            "code":          code,
-            "redirect_uri":  redirect_uri,
-            "code_verifier": code_verifier,
-        }, auth=(X_CLIENT_ID, X_CLIENT_SECRET))
+        resp = await client.post(
+            X_TOKEN_URL,
+            content=body.encode("utf-8"),
+            headers={
+                "Authorization":  auth_header,
+                "Content-Type":   "application/x-www-form-urlencoded",
+            },
+        )
+        print(f"[DEBUG] token exchange response: {resp.status_code} {resp.text}")
         if resp.status_code != 200:
             raise RuntimeError(f"token exchange failed: {resp.text}")
         return resp.json()
 
 
+
 async def refresh_access_token(refresh_token: str) -> dict:
+    client_id     = os.getenv("X_CLIENT_ID", "")
+    client_secret = os.getenv("X_CLIENT_SECRET", "")
     async with httpx.AsyncClient() as client:
         resp = await client.post(X_TOKEN_URL, data={
             "grant_type":    "refresh_token",
             "refresh_token": refresh_token,
-        }, auth=(X_CLIENT_ID, X_CLIENT_SECRET))
+            "client_id":     client_id,
+        }, auth=(client_id, client_secret))
         if resp.status_code != 200:
             raise RuntimeError(f"token refresh failed: {resp.text}")
         return resp.json()

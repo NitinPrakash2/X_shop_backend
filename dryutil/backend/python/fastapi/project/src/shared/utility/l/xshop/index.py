@@ -325,7 +325,7 @@ async def index(_p={'data': Any}):
             if action == "x_oauth_init":
                 return await _x_account.x_oauth_init(request)
             if action == "x_oauth_callback":
-                return await _x_account.x_oauth_callback(request, body, db, XAccount, OAuthToken, Product, ProductSyncLog)
+                return await _x_account.x_oauth_callback(request, body, db, XAccount, OAuthToken, Product, ProductSyncLog, Seller=Seller, SellerProfile=SellerProfile)
             if action == "x_account_status":
                 return await _x_account.x_account_status(request, db, XAccount)
             if action == "x_account_disconnect":

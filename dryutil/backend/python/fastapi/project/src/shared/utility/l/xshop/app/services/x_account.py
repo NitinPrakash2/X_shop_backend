@@ -14,7 +14,7 @@ from src.shared.util.jwt_handler.index import JWTHandler
 X_CLIENT_ID    = os.getenv("X_CLIENT_ID", "")
 X_CALLBACK_URL = os.getenv("X_CALLBACK_URL", "http://localhost:8000/client-public/api/i/ona/xshop?action=x_oauth_callback")
 X_SCOPES       = "tweet.read tweet.write users.read offline.access"
-X_AUTH_URL     = "https://twitter.com/i/oauth2/authorize"
+X_AUTH_URL     = "https://x.com/i/oauth2/authorize"
 
 _pkce_store: dict = {}
 
@@ -57,7 +57,8 @@ def _build_oauth_url(state: str, code_challenge: str) -> str:
         "code_challenge":        code_challenge,
         "code_challenge_method": "S256",
     }
-    return X_AUTH_URL + "?" + urllib.parse.urlencode(params)
+    # Use quote (not quote_plus) so spaces become %20 not + (Twitter requires %20)
+    return X_AUTH_URL + "?" + urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
 
 
 async def x_oauth_init(request: Request) -> JSONResponse:
@@ -76,7 +77,7 @@ async def x_oauth_init(request: Request) -> JSONResponse:
     }})
 
 
-async def x_oauth_callback(request: Request, body: dict, db: AsyncSession, XAccount, OAuthToken, Product=None, ProductSyncLog=None) -> JSONResponse:
+async def x_oauth_callback(request: Request, body: dict, db: AsyncSession, XAccount, OAuthToken, Product=None, ProductSyncLog=None, Seller=None, SellerProfile=None) -> JSONResponse:
     code      = body.get("code") or request.query_params.get("code")
     state     = body.get("state") or request.query_params.get("state")
     
@@ -102,8 +103,6 @@ async def x_oauth_callback(request: Request, body: dict, db: AsyncSession, XAcco
         raise HTTPException(400, "Failed to fetch X user info")
 
     # 3. Check if seller exists with this X account, if not create one
-    from src.shared.utility.l.xshop.app.models.seller import Seller, SellerProfile
-    from src.shared.util.jwt_handler.index import create_access_token, create_refresh_token
     import hashlib
     
     seller = (await db.execute(

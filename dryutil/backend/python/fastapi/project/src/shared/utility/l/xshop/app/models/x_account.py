@@ -9,6 +9,7 @@ import uuid
 
 class XAccount(Base):
     __tablename__ = "xshop_x_account"
+    __table_args__ = {"extend_existing": True}
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     seller_id = Column(UUID(as_uuid=True), ForeignKey("xshop_seller.id", ondelete="CASCADE"), nullable=False, unique=True)
@@ -31,6 +32,7 @@ class XAccount(Base):
 
 class OAuthToken(Base):
     __tablename__ = "xshop_oauth_token"
+    __table_args__ = {"extend_existing": True}
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     x_account_id = Column(UUID(as_uuid=True), ForeignKey("xshop_x_account.id", ondelete="CASCADE"), nullable=False, unique=True)

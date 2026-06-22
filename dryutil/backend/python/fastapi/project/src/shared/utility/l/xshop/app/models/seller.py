@@ -8,6 +8,7 @@ import uuid
 
 class Seller(Base):
     __tablename__ = "xshop_seller"
+    __table_args__ = {"extend_existing": True}
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email = Column(String, nullable=False, unique=True, index=True)
@@ -27,6 +28,7 @@ class Seller(Base):
 
 class SellerProfile(Base):
     __tablename__ = "xshop_seller_profile"
+    __table_args__ = {"extend_existing": True}
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     seller_id = Column(UUID(as_uuid=True), __import__('sqlalchemy').ForeignKey("xshop_seller.id", ondelete="CASCADE"), nullable=False, unique=True)
